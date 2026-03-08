@@ -1,0 +1,14 @@
+name: geo_api_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pdal
+  - python-pdal
+  - geopandas
+  - scikit-learn
+  - shapely
+  - fastapi
+  - uvicorn
+  - pydantic
