@@ -1,83 +1,83 @@
-# GitHub Issue Templates Repository
+# 🌍 3D LiDAR Vegetation Risk API
 
-This is a **template repository** containing standardized issue templates for bug reports and feature requests. Use this as a template when creating new repositories to automatically include these issue templates.
+An open-source, full-stack geospatial microservice built to process raw 3D LiDAR point clouds (`.laz`), perform automated feature extraction using Machine Learning, and serve lightweight 2D vector data for vegetation encroachment analysis. 
 
-## 📋 What's Included
+I built this project to explore the intersection of raw 3D spatial data, unsupervised machine learning, and modern web APIs. The goal was to take heavy, unclassified point clouds and distill them into actionable, web-ready intelligence.
 
-- **Bug Report Template** - Structured form for reporting bugs with severity levels
-- **Feature Request Template** - Comprehensive form for suggesting new features
-- **Config File** - Disables blank issues and provides helpful links
+## The Motivation
+Raw LiDAR data is massive and difficult to work with in a web browser. I wanted to build an end-to-end pipeline that acts as a bridge between heavy 3D point clouds and lightweight web mapping. This API automatically identifies individual tree canopies and calculates their exact spatial risk to a simulated high-voltage powerline, returning a styled GeoJSON payload that can be rendered instantly on any map.
 
-## 🚀 How to Use This Template
+## System Architecture
 
-### For New Repositories
+This service is broken down into modular components:
 
-1. When creating a new repository on GitHub, select **"Repository template"** dropdown
-2. Choose this repository as the template
-3. All issue templates will be automatically included in your new repo
+1. **The Ingestion & Filtering Engine (`pdal`)**: 
+   - Dynamically applies the **Simple Morphological Filter (SMRF)** to raw, unclassified point clouds to mathematically generate a bare-earth terrain model.
+   - Calculates the **Height Above Ground (HAG)** for every point to isolate high vegetation, discarding ground and noise points.
+2. **The Machine Learning Extractor (`scikit-learn`)**:
+   - Uses **DBSCAN (Density-Based Spatial Clustering of Applications with Noise)** to group millions of individual laser returns into distinct "Tree Objects".
+3. **The Vectorization & Spatial Math (`geopandas`, `shapely`)**:
+   - Converts 3D point clusters into 2D polygon boundaries (Convex Hulls).
+   - Simulates a infrastructure asset (powerline) and calculates the exact spatial intersection distance between every tree canopy and the line using optimized C-libraries.
+   - Reprojects coordinate systems from local meters (`EPSG:3857`) to web-standard latitude/longitude (`EPSG:4326`).
+4. **The REST API (`FastAPI`)**:
+   - Wraps the entire processing engine in a fast, self-documenting web endpoint, returning styled GeoJSON payloads ready for frontend visualization (e.g., Mapbox, Leaflet, geojson.io).
 
-### For Existing Repositories
+## Project Structure
 
-If you want to add these templates to an existing repository:
+```text
+spatial_risk_api/
+├── data/                   # Raw LiDAR input (.laz files)
+├── output/                 # Generated risk maps (.geojson)
+├── src/                    
+│   ├── main.py             # FastAPI entry point & route definitions
+│   ├── config.py           # Pydantic configuration & spatial thresholds
+│   ├── engine.py           # PDAL processing & DBSCAN ML clustering
+│   └── spatial_math.py     # GeoPandas vector math & risk evaluation
+├── environment.yml         # Conda dependency tracker
+└── README.md
 
-1. Copy the entire `.github` folder to your repository
-2. Commit and push the changes
-3. The templates will be available when creating new issues
-
-## 📝 Templates Overview
-
-### Bug Report
-- Clear description fields
-- Step-by-step reproduction steps
-- Expected vs actual behavior
-- Severity dropdown (Critical/High/Medium/Low)
-- Environment information
-- Screenshots and logs section
-
-### Feature Request
-- Problem statement
-- Proposed solution
-- Alternatives considered
-- Priority levels
-- Feature type checkboxes
-- Use case description
-- Mockups/examples section
-- Contribution willingness checkbox
-
-## ⚙️ Customization
-
-You can customize these templates by editing the YAML files in `.github/ISSUE_TEMPLATE/`:
-
-- `bug_report.yml` - Modify bug report fields and options
-- `feature_request.yml` - Modify feature request fields and options
-- `config.yml` - Update contact links with your repository URLs
-
-### Update Contact Links
-
-Don't forget to update the URLs in `config.yml` with your actual repository information:
-```yaml
-- name: Question or Discussion
-  url: https://github.com/YOUR-USERNAME/YOUR-REPO/discussions
 ```
 
-Replace `YOUR-USERNAME/YOUR-REPO` with your actual GitHub username and repository name.
+## Local Setup & Installation
 
-## 🎯 Making This a Template Repository
+To avoid C++ compilation errors common with geospatial libraries (GDAL/PDAL), this project uses `conda` for reliable dependency management.
 
-To make this repository a template on GitHub:
+1. **Clone the repository**
+2. **Build the environment:**
+```bash
+conda env create -f environment.yml
 
-1. Go to your repository settings
-2. Scroll down to the "Template repository" section
-3. Check the box ✅ "Template repository"
-4. Save changes
+```
 
-Now you can use this repository as a template for all your future projects!
 
-## 📖 Learn More
+3. **Activate the environment:**
+```bash
+conda activate geo_api_env
 
-- [GitHub Issue Templates Documentation](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates)
-- [Creating Issue Forms](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms)
+```
 
----
 
-**Note**: After using this template for a new repository, remember to update the `config.yml` file with your repository-specific URLs!
+4. **Ensure Data exists:** Place a sample LiDAR file (e.g., `autzen.laz`) inside the `data/` directory.
+
+## Usage
+
+Start the FastAPI server:
+
+```bash
+uvicorn src.main:app --reload
+
+```
+
+Navigate to the interactive API documentation at:
+**`http://127.0.0.1:8000/docs`**
+
+Execute the `POST /api/v1/analyze-risk` endpoint to trigger the pipeline. The API will process the point cloud and return a styled GeoJSON payload containing the powerline and color-coded tree canopies (Red = CRITICAL, Green = SAFE). You can drag and drop the output file from the `output/` folder directly into [geojson.io](https://geojson.io/) to instantly visualize the results.
+
+## Future Architecture Evolutions
+
+While this is currently a synchronous prototype, scaling this to handle statewide datasets would require a few architectural upgrades that I am exploring next:
+
+* **Asynchronous Task Queues:** Moving the heavy `engine.py` processing to a background worker queue (Celery + Redis) to prevent blocking the main API thread.
+* **Spatial Databases:** Writing the resulting `GeoDataFrame` assets directly to a **PostgreSQL/PostGIS** database for scalable spatial querying.
+* **Cloud Native Storage:** Streaming `.laz` files directly from an AWS S3 bucket using COPC (Cloud Optimized Point Cloud) architecture.
