@@ -1,5 +1,7 @@
 # 🌍 3D LiDAR Vegetation Risk API
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 An open-source, full-stack geospatial microservice built to process raw 3D LiDAR point clouds (`.laz`), perform automated feature extraction using Machine Learning, and serve lightweight 2D vector data for vegetation encroachment analysis. 
 
 I built this project to explore the intersection of raw 3D spatial data, unsupervised machine learning, and modern web APIs. The goal was to take heavy, unclassified point clouds and distill them into actionable, web-ready intelligence.
@@ -81,3 +83,7 @@ While this is currently a synchronous prototype, scaling this to handle statewid
 * **Asynchronous Task Queues:** Moving the heavy `engine.py` processing to a background worker queue (Celery + Redis) to prevent blocking the main API thread.
 * **Spatial Databases:** Writing the resulting `GeoDataFrame` assets directly to a **PostgreSQL/PostGIS** database for scalable spatial querying.
 * **Cloud Native Storage:** Streaming `.laz` files directly from an AWS S3 bucket using COPC (Cloud Optimized Point Cloud) architecture.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
