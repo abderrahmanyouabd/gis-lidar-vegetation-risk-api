@@ -1,11 +1,20 @@
 import geopandas as gpd
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString
 import json
 import logging
 
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def elevate_powerline(geom, height=35.0):
+    """Takes a flat 2D line and pushes it into the sky."""
+    if geom.geom_type == 'LineString':
+        return LineString([(x, y, height) for x, y in geom.coords])
+    elif geom.geom_type == 'MultiLineString':
+        return MultiLineString([[(x, y, height) for x, y in line.coords] for line in geom.geoms])
+    return geom
 
 def create_simulated_powerline(trees_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
@@ -53,6 +62,10 @@ def evaluate_vegetation_risk(trees_gdf: gpd.GeoDataFrame) -> dict:
 
     trees_gdf_web = trees_gdf.to_crs("EPSG:4326")
     powerline_gdf_web = powerline_gdf.to_crs("EPSG:4326")
+
+    powerline_gdf_web.geometry = powerline_gdf_web.geometry.apply(
+        lambda geom: elevate_powerline(geom, 35.0)
+    )
 
     powerline_gdf_web['stroke'] = '#ff0000'
     powerline_gdf_web['stroke-width'] = 4
