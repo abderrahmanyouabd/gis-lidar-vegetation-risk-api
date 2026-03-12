@@ -12,3 +12,6 @@ dependencies:
   - fastapi
   - uvicorn
   - pydantic
+  - pip
+  - pip:
+    - kafka-python

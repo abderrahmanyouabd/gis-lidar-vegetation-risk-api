@@ -1,45 +1,74 @@
 from fastapi import FastAPI, HTTPException
 import logging
+import json
+import uuid
+from pydantic import BaseModel
+from kafka import KafkaProducer
 
 from src.config import settings
-from src.engine import extract_tree_canopies
-from src.spatial_math import evaluate_vegetation_risk
-
 
 logger = logging.getLogger(__name__)
 
-
 app = FastAPI(
     title="Vegetation API",
-    description="Analyze LiDAR point clouds to detect powerline encroachment risks.",
+    description="Analyze LiDAR point clouds to detect powerline encroachment risks (Event-Driven).",
     version="1.0.0",
 )
 
+
+producer = None
+try:
+    producer = KafkaProducer(
+        bootstrap_servers=['localhost:9092'],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+    logger.info("Successfully connected to Kafka Broker on localhost:9092")
+except Exception as e:
+    logger.error(f"Failed to connect to Kafka: {e}. Is Docker running?")
+
+
+
+class LidarJobRequest(BaseModel):
+    cloud_url: str = settings.DEFAULT_COPC_URL
+
+
 @app.get("/")
 def health_check():
-    return {"status": "Operational", "engine": "Ready for LiDAR processing"}
+    kafka_status = "Connected" if producer else "Disconnected"
+    return {"status": "Operational", "engine": "Kafka Producer Ready", "kafka": kafka_status}
 
 
 @app.post("/api/v1/analyze-risk")
-def analyze_risk():
+def analyze_risk(request: LidarJobRequest):
     """
-    Triggers the end-to-end LiDAR processing pipeline.
-    Extracts trees from COPC cloud URL, simulates a powerline, calculates spatial risk, 
-    and returns a web-ready GeoJSON payload.
+    Lightning-fast async endpoint. 
+    Drops the LiDAR job onto the Kafka queue for background processing.
     """
-    logger.info("Received request to analyze vegetation risk.")
+    logger.info(f"Received request to queue vegetation risk analysis for: {request.cloud_url}")
+    
+    if not producer:
+        raise HTTPException(status_code=503, detail="Kafka broker is not available.")
     
     try:
-        trees_gdf = extract_tree_canopies(settings.DEFAULT_COPC_URL)
+        job_id = str(uuid.uuid4())
         
-        result_payload = evaluate_vegetation_risk(trees_gdf)
+        kafka_message = {
+            "job_id": job_id,
+            "cloud_url": request.cloud_url,
+            "status": "queued"
+        }
+        
+        producer.send('lidar-jobs', kafka_message)
+        producer.flush()
+        
+        logger.info(f"Job {job_id} successfully dropped onto Kafka queue.")
         
         return {
             "status": "success",
-            "message": "Vegetation encroachment analysis complete.",
-            "data": result_payload
+            "message": "Job successfully added to the processing queue.",
+            "job_id": job_id
         }
         
     except Exception as e:
-        logger.error(f"Pipeline execution failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal processing error.")
+        logger.error(f"Failed to queue job: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal queuing error.")
