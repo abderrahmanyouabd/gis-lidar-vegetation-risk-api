@@ -1,11 +1,13 @@
-import { Component, signal } from '@angular/core';
+import { Component } from '@angular/core';
+import { MapComponent } from './map/map';
 
 @Component({
   selector: 'app-root',
-  imports: [],
-  templateUrl: './app.html',
-  styleUrl: './app.css'
+  standalone: true,
+  imports: [MapComponent],
+  template: `<app-map></app-map>`,
+  styles: [`
+    :host { display: block; width: 100vw; height: 100vh; margin: 0; padding: 0; }
+  `]
 })
-export class App {
-  protected readonly title = signal('pipeline-ui-frontend');
-}
+export class App {}
