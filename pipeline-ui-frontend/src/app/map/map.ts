@@ -3,8 +3,9 @@ import { CommonModule } from '@angular/common';
 import { ApiService } from '../api';
 import { Deck, AmbientLight, DirectionalLight, LightingEffect } from '@deck.gl/core';
 import { GeoJsonLayer} from '@deck.gl/layers';
-import { TerrainLayer } from '@deck.gl/geo-layers';
 import { _TerrainExtension } from '@deck.gl/extensions';
+import { TileLayer } from '@deck.gl/geo-layers';
+import { BitmapLayer } from '@deck.gl/layers';
 
 @Component({
   selector: 'app-map',
@@ -16,7 +17,7 @@ import { _TerrainExtension } from '@deck.gl/extensions';
         <h2>Demo</h2>
         <p>MongoDB Job ID:</p>
         <input #jobInput type="text" placeholder="Paste Job ID here..." />
-        <button (click)="loadDigitalTwin(jobInput.value)">Render 3D Map</button>
+        <button (click)="loadData(jobInput.value)">Render 3D Map</button>
         <div class="status-box">{{ statusMessage }}</div>
       </div>
 
@@ -66,9 +67,9 @@ export class MapComponent implements AfterViewInit {
     });
   }
 
-  loadDigitalTwin(jobId: string) {
+  loadData(jobId: string) {
     if (!jobId) return;
-    this.statusMessage = 'Fetching Digital Twin from MongoDB...';
+    this.statusMessage = 'Fetching data from MongoDB...';
     
     this.apiService.getJobResult(jobId).subscribe({
       next: (response) => {
@@ -93,19 +94,22 @@ export class MapComponent implements AfterViewInit {
     const treesGeoJson = payload.trees;
     const powerlineGeoJson = payload.powerline;
 
-    // THE 3D EARTH: Amazon AWS Elevation Data + Esri Satellite Dirt
-    const terrainLayer = new TerrainLayer({
-      id: '3d-terrain',
+    // THE BASEMAP
+    const baseMapLayer = new TileLayer({
+      id: 'esri-satellite-basemap',
+      data: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       minZoom: 0,
-      maxZoom: 23,
-      elevationDecoder: {
-        rScaler: 256,
-        gScaler: 1,
-        bScaler: 1 / 256,
-        offset: -32768
-      },
-      elevationData: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-      texture: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      maxZoom: 19,
+      tileSize: 256,
+      renderSubLayers: (props) => {
+        const bbox = props.tile.bbox as any;
+        const { west, south, east, north } = bbox;
+        return new BitmapLayer(props, {
+          data: undefined,
+          image: props.data,
+          bounds: [west, south, east, north]
+        });
+      }
     });
 
     // THE TREES
@@ -114,18 +118,17 @@ export class MapComponent implements AfterViewInit {
       data: treesGeoJson,
       pickable: true,
       extruded: true, 
-      wireframe: false,
-      extensions: [new _TerrainExtension()],
+      wireframe: false,    
       getElevation: (feature: any) => feature.properties.Max_Height_m || 10,
       getFillColor: (feature: any) => {
-        const height = feature.properties.Max_Height_m || 0;
-        return height > 25 ? [200, 40, 40, 255] : [30, 150, 60, 255];
+      const risk = feature.properties.Risk_Level;
+      return risk === 'CRITICAL' ? [255, 40, 40, 255] : [30, 150, 60, 255]; 
       },
       material: {
         ambient: 0.3,
-        diffuse: 0.8,
+        diffuse: 0.9,
         shininess: 32.0,
-        specularColor: [60, 60, 60]
+        specularColor: [80, 80, 80]
       }
     });
 
@@ -134,14 +137,14 @@ export class MapComponent implements AfterViewInit {
       id: 'powerline-layer',
       data: powerlineGeoJson,
       stroked: true,
-      extensions: [new _TerrainExtension()],
       getLineColor: [255, 204, 0, 255], 
       getLineWidth: 6,
       lineWidthMinPixels: 4,
+      getPolygonOffset: ({layerIndex}) => [0, -layerIndex * 100], 
     });
 
     this.deckInstance.setProps({
-      layers: [terrainLayer, powerlineLayer, treeLayer]
+      layers: [baseMapLayer, powerlineLayer, treeLayer]
     });
   }
 }
