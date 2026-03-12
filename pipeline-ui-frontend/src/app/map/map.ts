@@ -1,7 +1,7 @@
 import { Component, AfterViewInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../api';
-import { Deck, AmbientLight, DirectionalLight, LightingEffect } from '@deck.gl/core';
+import { Deck, AmbientLight, DirectionalLight, LightingEffect, FlyToInterpolator } from '@deck.gl/core';
 import { GeoJsonLayer} from '@deck.gl/layers';
 import { _TerrainExtension } from '@deck.gl/extensions';
 import { TileLayer } from '@deck.gl/geo-layers';
@@ -57,9 +57,9 @@ export class MapComponent implements AfterViewInit {
       initialViewState: {
         longitude: 5.714,
         latitude: 7.613,
-        zoom: 16.5,
-        pitch: 65,
-        bearing: 120
+        zoom: 4,
+        pitch: 0,
+        bearing: 0
       },
       controller: true,
       effects: [lightingEffect],
@@ -172,7 +172,16 @@ export class MapComponent implements AfterViewInit {
     });
 
     this.deckInstance.setProps({
-      layers: [baseMapLayer, powerlineLayer, treeLayer]
+      layers: [baseMapLayer, powerlineLayer, treeLayer],
+      initialViewState: {
+        longitude: 5.714,
+        latitude: 7.613,
+        zoom: 16.5,
+        pitch: 65,
+        bearing: 120,
+        transitionDuration: 4000,
+        transitionInterpolator: new FlyToInterpolator()
+      }
     });
   }
 }
