@@ -5,6 +5,7 @@ import uuid
 from pydantic import BaseModel
 from kafka import KafkaProducer
 from pymongo import MongoClient
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
 
@@ -14,6 +15,15 @@ app = FastAPI(
     title="Vegetation API",
     description="Analyze LiDAR point clouds to detect powerline encroachment risks (Event-Driven).",
     version="1.0.0",
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"], # frontend's default port
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
