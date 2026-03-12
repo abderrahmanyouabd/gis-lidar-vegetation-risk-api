@@ -55,7 +55,6 @@ wheels/
 data/
 *.csv
 *.xlsx
-*.json
 
 # Environment
 .env
