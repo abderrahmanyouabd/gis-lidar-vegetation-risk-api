@@ -4,6 +4,7 @@ import json
 import uuid
 from pydantic import BaseModel
 from kafka import KafkaProducer
+from pymongo import MongoClient
 
 from src.config import settings
 
@@ -72,3 +73,30 @@ def analyze_risk(request: LidarJobRequest):
     except Exception as e:
         logger.error(f"Failed to queue job: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal queuing error.")
+
+
+@app.get("/api/v1/jobs/{job_id}")
+def get_job_result(job_id: str):
+    """
+    Fetches the completed 3D map from MongoDB so the frontend can render it.
+    """
+    try:
+        mongo_client = MongoClient("mongodb://localhost:27017/")
+        db = mongo_client["gis_pipeline"]
+        collection = db["risk_analyses"]
+        
+        job_data = collection.find_one({"job_id": job_id})
+        
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found.")
+            
+        if job_data["status"] != "completed":
+            return {"job_id": job_id, "status": job_data["status"]}
+            
+        del job_data["_id"]
+        
+        return job_data
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch job {job_id} from database: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error.")
