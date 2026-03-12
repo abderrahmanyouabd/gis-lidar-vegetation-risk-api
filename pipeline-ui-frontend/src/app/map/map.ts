@@ -160,6 +160,19 @@ export class MapComponent implements AfterViewInit {
       }
     });
 
+    // The Transparent Clearance Zone
+    const clearanceZoneLayer = new GeoJsonLayer({
+      id: 'clearance-zone-layer',
+      data: powerlineGeoJson,
+      stroked: true,
+      getLineColor: [255, 60, 60, 60],
+      // We physically draw the safety radius (example: 25 meters wide)
+      getLineWidth: 25,
+      lineWidthUnits: 'meters',
+      
+      getPolygonOffset: ({layerIndex}) => [0, -layerIndex * 100],
+    });
+
     // THE POWERLINE
     const powerlineLayer = new GeoJsonLayer({
       id: 'powerline-layer',
@@ -172,7 +185,7 @@ export class MapComponent implements AfterViewInit {
     });
 
     this.deckInstance.setProps({
-      layers: [baseMapLayer, powerlineLayer, treeLayer],
+      layers: [baseMapLayer, clearanceZoneLayer, powerlineLayer, treeLayer],
       initialViewState: {
         longitude: 5.714,
         latitude: 7.613,
