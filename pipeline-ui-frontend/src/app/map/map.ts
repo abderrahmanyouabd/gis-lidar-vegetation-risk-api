@@ -63,7 +63,35 @@ export class MapComponent implements AfterViewInit {
       },
       controller: true,
       effects: [lightingEffect],
-      layers: []
+      layers: [],
+      getTooltip: ({object}) => {
+        if (!object) return null;
+        
+        // If they hover over a tree
+        if (object.properties && object.properties.Max_Height_m) {
+          return {
+            html: `
+              <div style="font-family: 'Segoe UI', sans-serif; padding: 5px;">
+                <strong style="color: #00ffcc; font-size: 1.1em;">TREE ID: ${object.properties.Tree_ID}</strong><br/>
+                <hr style="border: 0.5px solid #333; margin: 5px 0;" />
+                <b>Height:</b> ${object.properties.Max_Height_m.toFixed(2)} m<br/>
+                <b>Clearance:</b> ${object.properties.Distance_to_Line_m.toFixed(2)} m<br/>
+                <b style="color: ${object.properties.Risk_Level === 'CRITICAL' ? '#ff3333' : '#33cc33'};">
+                  STATUS: ${object.properties.Risk_Level}
+                </b>
+              </div>
+            `,
+            style: {
+              backgroundColor: 'rgba(20, 20, 20, 0.95)',
+              color: '#fff',
+              border: '1px solid #444',
+              borderRadius: '6px',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+            }
+          };
+        }
+        return null;
+      }
     });
   }
 
