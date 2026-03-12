@@ -6,24 +6,26 @@ import geopandas as gpd
 from shapely.geometry import Point, MultiPoint
 from sklearn.cluster import DBSCAN
 import logging
-
 from src.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def extract_tree_canopies(laz_file_path: str) -> gpd.GeoDataFrame:
+def extract_tree_canopies(cloud_url: str = None) -> gpd.GeoDataFrame:
     """
-    Ingests a LiDAR file, extracts high vegetation, groups points into individual 
-    trees using ML, and returns a GeoDataFrame of tree canopy polygons.
+    Ingests a LiDAR file via pure cloud streaming (COPC), extracts high vegetation, 
+    groups points into individual trees using ML, and returns a GeoDataFrame.
     """
-    logger.info(f"Starting LiDAR processing for: {laz_file_path}")
+    if cloud_url is None:
+        cloud_url = settings.DEFAULT_COPC_URL
+
+    logger.info(f"Streaming LiDAR directly from cloud URL: {cloud_url}")
     
     pipeline_def = [
-        str(laz_file_path),
+        {"type": "readers.copc", "filename": str(cloud_url)},
         
-        {"type": "filters.smrf"}, 
+        {"type": "filters.smrf"},
         {"type": "filters.hag_nn"}, 
 
         # (ignore birds/noise > 300)

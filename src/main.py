@@ -24,17 +24,13 @@ def health_check():
 def analyze_risk():
     """
     Triggers the end-to-end LiDAR processing pipeline.
-    Extracts trees, simulates a powerline, calculates spatial risk, 
+    Extracts trees from COPC cloud URL, simulates a powerline, calculates spatial risk, 
     and returns a web-ready GeoJSON payload.
     """
     logger.info("Received request to analyze vegetation risk.")
     
-    if not settings.DEFAULT_LAS_FILE.exists():
-        logger.error(f"File missing: {settings.DEFAULT_LAS_FILE}")
-        raise HTTPException(status_code=404, detail="LiDAR data file not found on server.")
-    
     try:
-        trees_gdf = extract_tree_canopies(str(settings.DEFAULT_LAS_FILE))
+        trees_gdf = extract_tree_canopies(settings.DEFAULT_COPC_URL)
         
         result_payload = evaluate_vegetation_risk(trees_gdf)
         

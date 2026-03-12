@@ -6,7 +6,11 @@ class PipelineConfig(BaseModel):
     DATA_DIR: Path = BASE_DIR / "data"
     OUTPUT_DIR: Path = BASE_DIR / "output"
 
-    DEFAULT_LAS_FILE: Path = DATA_DIR / "autzen.laz"
+    DEFAULT_COPC_URL: str = "https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz"
+
+    @property
+    def copc_filename(self) -> str:
+        return self.DEFAULT_COPC_URL.split("/")[-1]
 
     # Geospatial business rules
     MIN_TREE_HEIGHT_M: float = 10.0  # only consider trees taller than this (in meters)
