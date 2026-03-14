@@ -13,7 +13,9 @@ status_producer = None
 try:
     status_producer = KafkaProducer(
         bootstrap_servers=['localhost:9092'],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        linger_ms=0,  # Send immediately without waiting for batch
+        batch_size=0  # No batching
     )
     logger.info("Worker: Connected to Kafka for status events")
 except Exception as e:
@@ -67,45 +69,48 @@ def start_worker():
         job_data = message.value
         job_id = job_data.get("job_id")
         cloud_url = job_data.get("cloud_url")
-        
+
         logger.info(f"Picked up Job {job_id} from the queue. Processing URL: {cloud_url}")
-        
+
         try:
-            # Save job to MongoDB at START so late WebSocket connections can see current status
-            collection.insert_one({
-                "job_id": job_id,
-                "cloud_url": cloud_url,
-                "status": "processing",
-                "message": "Job started processing"
-            })
-            logger.info(f"Worker: Created MongoDB entry for job {job_id} with status 'processing'")
-            
-            publish_status(job_id, "processing", "Downloading and filtering LiDAR data...")
-            
-            trees_gdf = extract_tree_canopies(cloud_url)
-            publish_status(job_id, "processing", "Running ML clustering to identify trees...")
-            
-            result_payload = evaluate_vegetation_risk(trees_gdf)
-            publish_status(job_id, "processing", "Calculating vegetation risk...")
-            
-            db_document = {
-                "job_id": job_id,
-                "cloud_url": cloud_url,
-                "status": "completed",
-                "result": result_payload
-            }
-            
-            collection.insert_one(db_document)
+            collection.update_one(
+                {"job_id": job_id},
+                {"$set": {
+                    "job_id": job_id,
+                    "cloud_url": cloud_url,
+                    "status": "processing",
+                    "message": "Starting LiDAR processing pipeline"
+                }},
+                upsert=True
+            )
+            logger.info(f"Worker: Created MongoDB entry for job {job_id}")
+
+
+            def progress(stage_msg: str):
+                collection.update_one({"job_id": job_id}, {"$set": {"message": stage_msg}})
+                publish_status(job_id, "processing", stage_msg)
+
+            trees_gdf = extract_tree_canopies(cloud_url, progress_callback=progress)
+            result_payload = evaluate_vegetation_risk(trees_gdf, progress_callback=progress)
+
+            collection.update_one(
+                {"job_id": job_id},
+                {"$set": {
+                    "status": "completed",
+                    "result": result_payload,
+                    "message": "Job completed successfully!"
+                }}
+            )
             publish_status(job_id, "completed", "Job completed successfully!")
-            logger.info(f"Successfully saved Job {job_id} to MongoDB!")
-            
+            logger.info(f"Successfully updated Job {job_id} in MongoDB!")
+
         except Exception as e:
             logger.error(f"Failed to process Job {job_id}: {e}")
-            collection.insert_one({
-                "job_id": job_id,
-                "status": "failed",
-                "error": str(e)
-            })
+            collection.update_one(
+                {"job_id": job_id},
+                {"$set": {"status": "failed", "error": str(e)}},
+                upsert=True
+            )
             publish_status(job_id, "failed", f"Error: {str(e)}")
 
 if __name__ == "__main__":

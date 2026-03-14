@@ -38,11 +38,14 @@ def create_simulated_powerline(trees_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     )
     return powerline_gdf
 
-def evaluate_vegetation_risk(trees_gdf: gpd.GeoDataFrame) -> dict:
+def evaluate_vegetation_risk(trees_gdf: gpd.GeoDataFrame, progress_callback=None) -> dict:
     """
     Calculates the spatial distance from every tree to the powerline.
     Returns a dictionary containing both the trees and the line as GeoJSON.
     """
+    if progress_callback:
+        progress_callback("Stage 4/4: Calculating vegetation encroachment risk")
+
     logger.info("Evaluating vegetation encroachment risk...")
     
     if trees_gdf.empty:

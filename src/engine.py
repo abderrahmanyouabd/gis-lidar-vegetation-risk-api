@@ -12,11 +12,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def extract_tree_canopies(cloud_url: str = None) -> gpd.GeoDataFrame:
+def extract_tree_canopies(cloud_url: str = None, progress_callback = None) -> gpd.GeoDataFrame:
     """
     Ingests a LiDAR file via pure cloud streaming (COPC), extracts high vegetation, 
     groups points into individual trees using ML, and returns a GeoDataFrame.
     """
+    def report(msg):
+        logger.info(msg)
+        if progress_callback:
+            progress_callback(msg)
+    
     if cloud_url is None:
         cloud_url = settings.DEFAULT_COPC_URL
 
@@ -31,7 +36,7 @@ def extract_tree_canopies(cloud_url: str = None) -> gpd.GeoDataFrame:
         # (ignore birds/noise > 300)
         {"type": "filters.range", "limits": f"HeightAboveGround[{settings.MIN_TREE_HEIGHT_M}:300]"}
     ]
-    
+    report("Stage 1/4: Downloading and filtering LiDAR data")
     logger.info("Executing PDAL pipeline (Filtering & Height Calculation)...")
     pipeline = pdal.Pipeline(json.dumps(pipeline_def))
     
@@ -45,6 +50,7 @@ def extract_tree_canopies(cloud_url: str = None) -> gpd.GeoDataFrame:
     points = pipeline.arrays[0]
 
     # DBSCAN Clustering
+    report("Stage 2/4: Running ML clustering to identify trees")
     logger.info("Running DBSCAN ML clustering to identify individual trees...")
     coords = np.vstack((points['X'], points['Y'], points['Z'])).transpose()
     
@@ -67,7 +73,7 @@ def extract_tree_canopies(cloud_url: str = None) -> gpd.GeoDataFrame:
          logger.warning("Clustering finished, but no distinct trees were formed.")
          return gpd.GeoDataFrame()
 
-
+    report("Stage 3/4: Vectorizing 3D clusters into 2D map polygons")
     logger.info("Vectorizing 3D clusters into 2D map polygons...")
     tree_canopies = []
     

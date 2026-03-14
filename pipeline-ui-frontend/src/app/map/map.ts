@@ -41,20 +41,21 @@ interface JobStatus {
     input { width: 100%; padding: 12px; margin: 10px 0; box-sizing: border-box; background: #1a1a1a; border: 1px solid #444; color: #fff; border-radius: 6px; }
     button { width: 100%; padding: 12px; background: #fff; color: #000; border: none; font-weight: bold; font-size: 1rem; cursor: pointer; border-radius: 6px; transition: 0.3s; text-transform: uppercase; }
     button:hover { background: #ccc; }
-    .status-box { margin-top: 15px; font-size: 0.9rem; color: #aaa; font-style: italic; display: flex; align-items: center; gap: 8px; }
+    .status-box { margin-top: 15px; font-size: 0.95rem; color: #00ffaa; font-family: 'Courier New', monospace; display: flex; align-items: center; gap: 10px; min-height: 24px; }
     .loader {
-      width: 12px;
-      height: 12px;
-      border: 2px solid #fff;
+      width: 16px;
+      height: 16px;
+      border: 3px solid #00ffaa;
       border-bottom-color: transparent;
       border-radius: 50%;
       display: inline-block;
-      animation: rotation 1s linear infinite;
+      animation: rotation 0.8s linear infinite;
     }
     @keyframes rotation {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    .dots { color: #00ffaa; }
   `]
 })
 export class MapComponent implements AfterViewInit, OnDestroy {
@@ -92,7 +93,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     
     this.websocket.onopen = () => {
       this.isConnected = true;
-      this.isLoading = false;
       this.statusMessage = `Connected - waiting for updates...`;
       this.cdr.detectChanges();
     };
@@ -150,24 +150,61 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.isConnected = false;
   }
 
+  private dotAnimationInterval: any = null;
+  private dotCount: number = 0;
+  private currentBaseMessage: string = '';
+
+  private startDotAnimation() {
+    this.stopDotAnimation();
+    this.dotCount = 0;
+    
+    this.dotAnimationInterval = setInterval(() => {
+      this.dotCount = (this.dotCount + 1) % 4;
+      const dots = '.'.repeat(this.dotCount);
+      this.statusMessage = `${this.currentBaseMessage}${dots}`;
+      this.cdr.detectChanges();
+    }, 400);
+  }
+
+  private stopDotAnimation() {
+    if (this.dotAnimationInterval) {
+      clearInterval(this.dotAnimationInterval);
+      this.dotAnimationInterval = null;
+    }
+  }
+
   private handleStatusUpdate(status: JobStatus) {
+    console.log('WebSocket received:', status);
+    
+    this.stopDotAnimation();
+    
     switch (status.status) {
       case 'queued':
         this.statusMessage = `Queued - ${status.message || 'waiting for worker'}`;
+        this.isLoading = true;
         break;
       case 'processing':
-        this.statusMessage = `${status.message || 'Processing...'} `;
+        this.isLoading = true;
+        // Show the stage message immediately with animated dots
+        this.currentBaseMessage = status.message || 'Processing';
+        this.statusMessage = this.currentBaseMessage;
+        this.startDotAnimation();
         break;
       case 'completed':
+        this.isLoading = false;
         this.statusMessage = 'Complete! Loading 3D map...';
+        this.stopDotAnimation();
         this.disconnectWebSocket();
         this.fetchJobResult(status.job_id);
         break;
       case 'failed':
+        this.isLoading = false;
         this.statusMessage = `Error: ${status.message || 'Job failed'}`;
+        this.stopDotAnimation();
         this.disconnectWebSocket();
         break;
     }
+    this.cdr.detectChanges();
   }
 
   ngAfterViewInit() {
