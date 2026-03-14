@@ -58,6 +58,12 @@ kafka_consumer: AIOKafkaConsumer = None
 kafka_consumer_running = False
 
 
+# mongo global vars
+mongo_client = MongoClient("mongodb://localhost:27017/")
+db = mongo_client["gis_pipeline"]
+collection = db["risk_analyses"]
+
+
 async def kafka_status_consumer():
     """Background task that consumes job status events from Kafka and pushes to WebSocket clients."""
     global kafka_consumer, kafka_consumer_running
@@ -109,14 +115,12 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager to start/stop background tasks."""
     global kafka_consumer_task, kafka_consumer_running
     
-    logger.info("=== STARTUP: Starting Kafka consumer background task ===")
+    # StartUP
     kafka_consumer_running = True
     kafka_consumer_task = asyncio.create_task(kafka_status_consumer())
-    logger.info(f"Kafka consumer task created: {kafka_consumer_task}")
     yield  # Application runs
     
     # Shutdown
-    logger.info("=== SHUTDOWN: Stopping Kafka consumer ===")
     kafka_consumer_running = False
     if kafka_consumer_task:
         kafka_consumer_task.cancel()
@@ -126,6 +130,8 @@ async def lifespan(app: FastAPI):
             pass
     logger.info("Kafka consumer task stopped")
 
+    mongo_client.close()
+    logger.info("MongoDB connection closed")
 
 app = FastAPI(
     title="Vegetation API",
@@ -215,10 +221,6 @@ def get_job_result(job_id: str):
     Fetches the completed 3D map from MongoDB so the frontend can render it.
     """
     try:
-        mongo_client = MongoClient("mongodb://localhost:27017/")
-        db = mongo_client["gis_pipeline"]
-        collection = db["risk_analyses"]
-        
         job_data = collection.find_one({"job_id": job_id})
         
         if not job_data:
@@ -249,9 +251,6 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     
     # Send current job status immediately when client connects (catch-up for late connections)
     try:
-        mongo_client = MongoClient("mongodb://localhost:27017/")
-        db = mongo_client["gis_pipeline"]
-        collection = db["risk_analyses"]
         job_data = collection.find_one({"job_id": job_id})
         
         if job_data:
