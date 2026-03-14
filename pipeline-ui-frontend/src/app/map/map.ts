@@ -790,7 +790,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       id: 'trees',
       data: treesGeoJson,
       pickable: true, extruded: true, wireframe: false,
-      getElevation: (f: any) => f.properties.Max_Height_m || 10,
+      getElevation: (f: any) => f.properties.Max_Height_m ?? 10,
+      // getElevation: (f: any) => f.properties.top_z_m ?? f.properties.Max_Height_m,
       getFillColor: (f: any) => {
         const r = f.properties.Risk_Level;
         return r === 'CRITICAL' ? [196,  66,  54, 255]
