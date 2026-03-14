@@ -1,20 +1,137 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 import logging
 import json
 import uuid
+from typing import Dict, List
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from kafka import KafkaProducer
+from aiokafka import AIOKafkaConsumer
 from pymongo import MongoClient
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 
 from src.config import settings
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+
+class ConnectionManager:
+    """Manages WebSocket connections for real-time job status updates."""
+    
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+    
+    async def connect(self, job_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if job_id not in self.active_connections:
+            self.active_connections[job_id] = []
+        self.active_connections[job_id].append(websocket)
+        logger.info(f"WebSocket client connected for job: {job_id}")
+    
+    def disconnect(self, job_id: str, websocket: WebSocket):
+        if job_id in self.active_connections:
+            self.active_connections[job_id].remove(websocket)
+            if not self.active_connections[job_id]:
+                del self.active_connections[job_id]
+            logger.info(f"WebSocket client disconnected for job: {job_id}")
+    
+    async def send_message(self, job_id: str, message: dict):
+        if job_id in self.active_connections:
+            for connection in self.active_connections[job_id]:
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.error(f"Error sending to client: {e}")
+
+
+manager = ConnectionManager()
+
+# Global references to keep the task alive
+kafka_consumer_task: asyncio.Task = None
+kafka_consumer: AIOKafkaConsumer = None
+kafka_consumer_running = False
+
+
+async def kafka_status_consumer():
+    """Background task that consumes job status events from Kafka and pushes to WebSocket clients."""
+    global kafka_consumer, kafka_consumer_running
+    logger.info("Kafka consumer: Starting...")
+    
+    while kafka_consumer_running:
+        try:
+            logger.info("Kafka consumer: Creating connection...")
+            kafka_consumer = AIOKafkaConsumer(
+                'job-status-events',
+                bootstrap_servers='localhost:9092',
+                group_id='websocket-broadcast',
+                auto_offset_reset='earliest',
+            )
+            logger.info("Kafka consumer: Connecting to broker...")
+            await kafka_consumer.start()
+            logger.info("Kafka consumer: Successfully connected! Listening on 'job-status-events' topic")
+            
+            async for message in kafka_consumer:
+                if not kafka_consumer_running:
+                    break
+                try:
+                    event = json.loads(message.value.decode('utf-8'))
+                    job_id = event.get("job_id")
+                    logger.info(f"Kafka consumer: Got message for job {job_id}: {event.get('status')}")
+                    if job_id:
+                        await manager.send_message(job_id, event)
+                except Exception as e:
+                    logger.error(f"Kafka consumer: Error processing message: {e}")
+                    
+        except asyncio.CancelledError:
+            logger.info("Kafka consumer: Cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Kafka consumer: Error: {e}. Reconnecting in 5 seconds...")
+            if kafka_consumer_running:
+                await asyncio.sleep(5)
+        finally:
+            if kafka_consumer:
+                try:
+                    await kafka_consumer.stop()
+                    logger.info("Kafka consumer: Stopped")
+                except Exception as e:
+                    logger.error(f"Error stopping consumer: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager to start/stop background tasks."""
+    global kafka_consumer_task, kafka_consumer_running
+    
+    logger.info("=== STARTUP: Starting Kafka consumer background task ===")
+    kafka_consumer_running = True
+    kafka_consumer_task = asyncio.create_task(kafka_status_consumer())
+    logger.info(f"Kafka consumer task created: {kafka_consumer_task}")
+    yield  # Application runs
+    
+    # Shutdown
+    logger.info("=== SHUTDOWN: Stopping Kafka consumer ===")
+    kafka_consumer_running = False
+    if kafka_consumer_task:
+        kafka_consumer_task.cancel()
+        try:
+            await kafka_consumer_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("Kafka consumer task stopped")
+
 
 app = FastAPI(
     title="Vegetation API",
     description="Analyze LiDAR point clouds to detect powerline encroachment risks (Event-Driven).",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 
@@ -69,7 +186,14 @@ def analyze_risk(request: LidarJobRequest):
             "status": "queued"
         }
         
+        status_event = {
+            "job_id": job_id,
+            "status": "queued",
+            "message": "Job has been queued for processing"
+        }
+        
         producer.send('lidar-jobs', kafka_message)
+        producer.send('job-status-events', status_event)
         producer.flush()
         
         logger.info(f"Job {job_id} successfully dropped onto Kafka queue.")
@@ -107,6 +231,44 @@ def get_job_result(job_id: str):
         
         return job_data
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (don't convert to 500)
+        raise
     except Exception as e:
         logger.error(f"Failed to fetch job {job_id} from database: {e}")
         raise HTTPException(status_code=500, detail="Database connection error.")
+
+
+@app.websocket("/ws/{job_id}")
+async def websocket_endpoint(websocket: WebSocket, job_id: str):
+    """
+    WebSocket endpoint for real-time job status updates.
+    Clients connect with their job_id to receive live progress notifications.
+    """
+    await manager.connect(job_id, websocket)
+    
+    # Send current job status immediately when client connects (catch-up for late connections)
+    try:
+        mongo_client = MongoClient("mongodb://localhost:27017/")
+        db = mongo_client["gis_pipeline"]
+        collection = db["risk_analyses"]
+        job_data = collection.find_one({"job_id": job_id})
+        
+        if job_data:
+            # Send current status to the newly connected client
+            catch_up_message = {
+                "job_id": job_id,
+                "status": job_data.get("status", "unknown"),
+                "message": job_data.get("message", f"Current status: {job_data.get('status')}")
+            }
+            await websocket.send_json(catch_up_message)
+            logger.info(f"Sent catch-up status '{job_data.get('status')}' to WebSocket client for job {job_id}")
+    except Exception as e:
+        logger.warning(f"Could not send catch-up status for job {job_id}: {e}")
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            logger.debug(f"Received from client: {data}")
+    except WebSocketDisconnect:
+        manager.disconnect(job_id, websocket)

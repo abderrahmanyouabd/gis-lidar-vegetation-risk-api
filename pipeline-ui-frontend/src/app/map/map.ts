@@ -1,4 +1,4 @@
-import { Component, AfterViewInit, ElementRef, ViewChild } from '@angular/core';
+import { Component, AfterViewInit, ElementRef, ViewChild, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../api';
 import { Deck, AmbientLight, DirectionalLight, LightingEffect, FlyToInterpolator } from '@deck.gl/core';
@@ -6,6 +6,12 @@ import { GeoJsonLayer} from '@deck.gl/layers';
 import { _TerrainExtension } from '@deck.gl/extensions';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer } from '@deck.gl/layers';
+
+interface JobStatus {
+  job_id: string;
+  status: string;
+  message?: string;
+}
 
 @Component({
   selector: 'app-map',
@@ -18,7 +24,10 @@ import { BitmapLayer } from '@deck.gl/layers';
         <p>MongoDB Job ID:</p>
         <input #jobInput type="text" placeholder="Paste Job ID here..." />
         <button (click)="loadData(jobInput.value)">Render 3D Map</button>
-        <div class="status-box">{{ statusMessage }}</div>
+        <div class="status-box">
+          <span *ngIf="isLoading" class="loader"></span>
+          {{ statusMessage }}
+        </div>
       </div>
 
       <canvas #deckCanvas id="deck-canvas"></canvas>
@@ -32,16 +41,134 @@ import { BitmapLayer } from '@deck.gl/layers';
     input { width: 100%; padding: 12px; margin: 10px 0; box-sizing: border-box; background: #1a1a1a; border: 1px solid #444; color: #fff; border-radius: 6px; }
     button { width: 100%; padding: 12px; background: #fff; color: #000; border: none; font-weight: bold; font-size: 1rem; cursor: pointer; border-radius: 6px; transition: 0.3s; text-transform: uppercase; }
     button:hover { background: #ccc; }
-    .status-box { margin-top: 15px; font-size: 0.9rem; color: #aaa; font-style: italic; }
+    .status-box { margin-top: 15px; font-size: 0.9rem; color: #aaa; font-style: italic; display: flex; align-items: center; gap: 8px; }
+    .loader {
+      width: 12px;
+      height: 12px;
+      border: 2px solid #fff;
+      border-bottom-color: transparent;
+      border-radius: 50%;
+      display: inline-block;
+      animation: rotation 1s linear infinite;
+    }
+    @keyframes rotation {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   `]
 })
-export class MapComponent implements AfterViewInit {
+export class MapComponent implements AfterViewInit, OnDestroy {
   @ViewChild('deckCanvas') deckCanvas!: ElementRef<HTMLCanvasElement>;
   
   private deckInstance: any;
+  private websocket: WebSocket | null = null;
+  private currentJobId: string = '';
+  private reconnectInterval: any = null;
+  private isConnected: boolean = false;
+  isLoading: boolean = false;
   statusMessage = 'Awaiting Job ID...';
 
-  constructor(private apiService: ApiService) {}
+  constructor(
+    private apiService: ApiService,
+    private cdr: ChangeDetectorRef
+  ) {}
+
+  ngOnDestroy() {
+    this.disconnectWebSocket();
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval);
+    }
+  }
+
+  private connectWebSocket(jobId: string) {
+    this.disconnectWebSocket();
+    this.currentJobId = jobId;
+    this.isLoading = true;
+    
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//localhost:8000/ws/${jobId}`;
+    
+    this.websocket = new WebSocket(wsUrl);
+    
+    this.websocket.onopen = () => {
+      this.isConnected = true;
+      this.isLoading = false;
+      this.statusMessage = `Connected - waiting for updates...`;
+      this.cdr.detectChanges();
+    };
+    
+    this.websocket.onmessage = (event) => {
+      try {
+        const status: JobStatus = JSON.parse(event.data);
+        this.handleStatusUpdate(status);
+        this.cdr.detectChanges();
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e);
+      }
+    };
+    
+    this.websocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      this.isLoading = false;
+      this.statusMessage = 'Connection error - trying to reconnect...';
+      this.cdr.detectChanges();
+    };
+    
+    this.websocket.onclose = () => {
+      this.isConnected = false;
+      this.isLoading = false;
+      console.log('WebSocket disconnected');
+      
+      if (this.currentJobId && this.statusMessage.indexOf('complete') === -1 && this.statusMessage.indexOf('error') === -1) {
+        this.statusMessage = 'Connection lost - attempting to reconnect...';
+        this.cdr.detectChanges();
+        this.startReconnect();
+      }
+    };
+  }
+
+  private startReconnect() {
+    if (this.reconnectInterval) return;
+    
+    this.reconnectInterval = setInterval(() => {
+      if (this.currentJobId && !this.isConnected) {
+        console.log('Attempting to reconnect WebSocket...');
+        this.connectWebSocket(this.currentJobId);
+      }
+    }, 3000);
+  }
+
+  private disconnectWebSocket() {
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval);
+      this.reconnectInterval = null;
+    }
+    if (this.websocket) {
+      this.websocket.close();
+      this.websocket = null;
+    }
+    this.isConnected = false;
+  }
+
+  private handleStatusUpdate(status: JobStatus) {
+    switch (status.status) {
+      case 'queued':
+        this.statusMessage = `Queued - ${status.message || 'waiting for worker'}`;
+        break;
+      case 'processing':
+        this.statusMessage = `${status.message || 'Processing...'} `;
+        break;
+      case 'completed':
+        this.statusMessage = 'Complete! Loading 3D map...';
+        this.disconnectWebSocket();
+        this.fetchJobResult(status.job_id);
+        break;
+      case 'failed':
+        this.statusMessage = `Error: ${status.message || 'Job failed'}`;
+        this.disconnectWebSocket();
+        break;
+    }
+  }
 
   ngAfterViewInit() {
     const ambientLight = new AmbientLight({ color: [255, 255, 255], intensity: 0.4 });
@@ -97,23 +224,37 @@ export class MapComponent implements AfterViewInit {
 
   loadData(jobId: string) {
     if (!jobId) return;
-    this.statusMessage = 'Fetching data from MongoDB...';
+    
+    this.connectWebSocket(jobId);
+    this.statusMessage = 'Connecting to real-time status...';
+    this.isLoading = true;
+    this.cdr.detectChanges();
+  }
+
+  private fetchJobResult(jobId: string) {
+    this.statusMessage = 'Complete! Loading 3D map...';
+    this.cdr.detectChanges();
     
     this.apiService.getJobResult(jobId).subscribe({
       next: (response) => {
-        if (response.status === 'completed') {
-          this.statusMessage = 'Success! Rendering Photorealistic 3D...';
-          
-          let mapData = response.result;
-          if (typeof mapData === 'string') mapData = JSON.parse(mapData);
-          if (typeof mapData === 'string') mapData = JSON.parse(mapData);
-          if (mapData && mapData.data && mapData.data.type === 'FeatureCollection') {
-            mapData = mapData.data;
-          } else if (mapData && mapData.features && !mapData.type) {
-            mapData = { type: 'FeatureCollection', features: mapData.features };
-          }
-          this.render3DLayers(mapData);
+        this.statusMessage = 'Job complete! Rendering 3D map...';
+        this.isLoading = false;
+        this.cdr.detectChanges();
+        
+        let mapData = response.result;
+        if (typeof mapData === 'string') mapData = JSON.parse(mapData);
+        if (typeof mapData === 'string') mapData = JSON.parse(mapData);
+        if (mapData && mapData.data && mapData.data.type === 'FeatureCollection') {
+          mapData = mapData.data;
+        } else if (mapData && mapData.features && !mapData.type) {
+          mapData = { type: 'FeatureCollection', features: mapData.features };
         }
+        this.render3DLayers(mapData);
+      },
+      error: (err) => {
+        this.statusMessage = `Error loading result: ${err.message || 'Unknown error'}`;
+        this.isLoading = false;
+        this.cdr.detectChanges();
       }
     });
   }
