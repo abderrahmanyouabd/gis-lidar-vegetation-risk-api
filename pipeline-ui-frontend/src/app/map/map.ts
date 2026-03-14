@@ -66,6 +66,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private currentJobId: string = '';
   private reconnectInterval: any = null;
   private isConnected: boolean = false;
+  private jobDone: boolean = false;
   isLoading: boolean = false;
   statusMessage = 'Awaiting Job ID...';
 
@@ -119,7 +120,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.isLoading = false;
       console.log('WebSocket disconnected');
       
-      if (this.currentJobId && this.statusMessage.indexOf('complete') === -1 && this.statusMessage.indexOf('error') === -1) {
+      if (this.currentJobId && !this.jobDone) {
         this.statusMessage = 'Connection lost - attempting to reconnect...';
         this.cdr.detectChanges();
         this.startReconnect();
@@ -191,6 +192,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.startDotAnimation();
         break;
       case 'completed':
+        this.jobDone = true;
         this.isLoading = false;
         this.statusMessage = 'Complete! Loading 3D map...';
         this.stopDotAnimation();
@@ -198,6 +200,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.fetchJobResult(status.job_id);
         break;
       case 'failed':
+        this.jobDone = true;
         this.isLoading = false;
         this.statusMessage = `Error: ${status.message || 'Job failed'}`;
         this.stopDotAnimation();
@@ -262,6 +265,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   loadData(jobId: string) {
     if (!jobId) return;
     
+    this.jobDone = false;
     this.connectWebSocket(jobId);
     this.statusMessage = 'Connecting to real-time status...';
     this.isLoading = true;
