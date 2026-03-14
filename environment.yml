@@ -17,3 +17,4 @@ dependencies:
   - pip:
     - kafka-python
     - aiokafka
+    - pytest
