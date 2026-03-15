@@ -775,6 +775,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   render3DLayers(payload: any) {
     const treesGeoJson     = payload.trees;
     const powerlineGeoJson = payload.powerline;
+    // TO BE REMOVED LATER ...
+    const powerlineFixed = {
+      ...powerlineGeoJson,
+      features: (powerlineGeoJson.features ?? []).map((f: any) => ({
+      ...f,
+      geometry: {
+      ...f.geometry,
+      coordinates: f.geometry.coordinates.map((c: number[]) => [c[0], c[1], 35]) // hardcoded to 35m until I figure out the issue :/
+      }
+      }))
+    };
+    // ...
 
     const baseMap = new TileLayer({
       id: 'basemap',
@@ -805,7 +817,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     const clearanceLayer = new GeoJsonLayer({
       id: 'clearance',
-      data: powerlineGeoJson,
+      data: powerlineFixed,
       stroked: true,
       getLineColor: [196, 66, 54, 22],
       getLineWidth: 25, lineWidthUnits: 'meters',
@@ -814,7 +826,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     const powerlineLayer = new GeoJsonLayer({
       id: 'powerline',
-      data: powerlineGeoJson,
+      data: powerlineFixed,
       stroked: true,
       getLineColor: [192, 122, 50, 255],
       getLineWidth: 6, lineWidthMinPixels: 4,
