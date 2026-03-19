@@ -6,8 +6,10 @@ import geopandas as gpd
 from shapely.geometry import Point, MultiPoint
 from sklearn.cluster import DBSCAN
 from scipy.spatial import cKDTree
+import pyproj
 import logging
 from src.config import settings
+from src.crs_utils import get_working_crs, reproject_gdf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +48,10 @@ def extract_tree_canopies(cloud_url: str = None, progress_callback=None) -> gpd.
         cloud_url = settings.DEFAULT_COPC_URL
 
     logger.info(f"Streaming LiDAR directly from cloud URL: {cloud_url}")
+
+    working_crs, source_crs, crs_source = get_working_crs(cloud_url)
+    logger.info(f"CRS determined for processing: {working_crs} (source: {crs_source})")
+    report(f"Using CRS: {working_crs}")
 
     report("Stage 1/4: Downloading and filtering LiDAR data")
 
@@ -125,9 +131,15 @@ def extract_tree_canopies(cloud_url: str = None, progress_callback=None) -> gpd.
             'geometry':     canopy_polygon
         })
 
-    gdf_trees = gpd.GeoDataFrame(tree_canopies, crs="EPSG:3857")
+    gdf_trees = gpd.GeoDataFrame(tree_canopies, crs=source_crs)
+
+    if source_crs != working_crs:
+        logger.info(f"Reprojecting from {source_crs} to {working_crs} for analysis")
+        gdf_trees = reproject_gdf(gdf_trees, working_crs)
 
     gdf_trees.attrs['conductor_pts'] = conductor_pts
+    gdf_trees.attrs['source_crs'] = source_crs
+    gdf_trees.attrs['working_crs'] = working_crs
 
     logger.info(f"Extraction complete. Found {len(gdf_trees)} distinct tree canopies.")
     return gdf_trees

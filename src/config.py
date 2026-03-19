@@ -12,6 +12,11 @@ class PipelineConfig(BaseModel):
     def copc_filename(self) -> str:
         return self.DEFAULT_COPC_URL.split("/")[-1]
 
+    # CRS Configuration
+    TARGET_CRS: str = "EPSG:3857"
+    AUTO_DETECT_CRS: bool = True
+    FALLBACK_CRS: str = "EPSG:4326"
+
     # Geospatial business rules
     MIN_TREE_HEIGHT_M: float = 10.0  # only consider trees taller than this (in meters)
 

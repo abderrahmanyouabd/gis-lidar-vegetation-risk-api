@@ -118,11 +118,16 @@ def evaluate_vegetation_risk(trees_gdf: gpd.GeoDataFrame, progress_callback=None
     logger.info(f"Saved styled web map to: {map_output_path}")
 
     # Build metadata block for the frontend
+    source_crs = trees_gdf.attrs.get('source_crs', 'unknown')
+    working_crs = trees_gdf.attrs.get('working_crs', 'unknown')
+    
     metadata = {
         "horizontal_crs": "EPSG:4326",
         "vertical_datum": "HAG (Height Above Ground, SMRF-derived)",
         "powerline_source": powerline_gdf['source'].iloc[0],
-        "units": "meters"
+        "units": "meters",
+        "processing_crs": working_crs,
+        "source_crs": source_crs
     }
 
     return {
