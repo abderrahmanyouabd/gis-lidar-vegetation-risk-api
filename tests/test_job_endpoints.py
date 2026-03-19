@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime
+from starlette.requests import Request
 
 from src.main import (
     list_jobs,
@@ -9,6 +10,12 @@ from src.main import (
     JobListResponse,
     PaginationInfo
 )
+
+
+def mock_request():
+    """Create a mock Request object for testing rate-limited endpoints."""
+    scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+    return Request(scope)
 
 
 class TestListJobs:
@@ -20,7 +27,7 @@ class TestListJobs:
         mock_collection.count_documents.return_value = 0
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = []
         
-        response = list_jobs(page=1, limit=20)
+        response = list_jobs(request=mock_request(), page=1, limit=20)
         
         assert response.pagination.page == 1
         assert response.pagination.limit == 20
@@ -32,7 +39,7 @@ class TestListJobs:
         mock_collection.count_documents.return_value = 100
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = []
         
-        response = list_jobs(page=3, limit=50)
+        response = list_jobs(request=mock_request(), page=3, limit=50)
         
         assert response.pagination.page == 3
         assert response.pagination.limit == 50
@@ -43,7 +50,7 @@ class TestListJobs:
         mock_collection.count_documents.return_value = 0
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = []
         
-        response = list_jobs(page=1, limit=20)
+        response = list_jobs(request=mock_request(), page=1, limit=20)
         
         assert response.jobs == []
         assert response.pagination.total == 0
@@ -63,7 +70,7 @@ class TestListJobs:
         mock_collection.count_documents.return_value = 1
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = [mock_job]
         
-        response = list_jobs(page=1, limit=20)
+        response = list_jobs(request=mock_request(), page=1, limit=20)
         
         assert len(response.jobs) == 1
         job = response.jobs[0]
@@ -79,7 +86,7 @@ class TestListJobs:
         mock_collection.count_documents.return_value = 45
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = []
         
-        response = list_jobs(page=1, limit=20)
+        response = list_jobs(request=mock_request(), page=1, limit=20)
         
         assert response.pagination.total == 45
         assert response.pagination.total_pages == 3
@@ -90,7 +97,7 @@ class TestListJobs:
         mock_collection.count_documents.return_value = 85
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = []
         
-        response = list_jobs(page=1, limit=20)
+        response = list_jobs(request=mock_request(), page=1, limit=20)
         
         assert response.pagination.total_pages == 5
 
@@ -107,7 +114,7 @@ class TestCancelJob:
             'status': 'queued'
         }
         
-        response = cancel_job('test-123')
+        response = cancel_job(request=mock_request(), job_id='test-123')
         
         assert response['job_id'] == 'test-123'
         assert response['status'] == 'cancelled'
@@ -123,7 +130,7 @@ class TestCancelJob:
             'status': 'processing'
         }
         
-        response = cancel_job('test-123')
+        response = cancel_job(request=mock_request(), job_id='test-123')
         
         assert response['job_id'] == 'test-123'
         assert response['status'] == 'cancelled'
@@ -138,7 +145,7 @@ class TestCancelJob:
         
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            cancel_job('test-123')
+            cancel_job(request=mock_request(), job_id='test-123')
         
         assert exc_info.value.status_code == 400
         assert 'completed' in exc_info.value.detail
@@ -153,7 +160,7 @@ class TestCancelJob:
         
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            cancel_job('test-123')
+            cancel_job(request=mock_request(), job_id='test-123')
         
         assert exc_info.value.status_code == 400
         assert 'failed' in exc_info.value.detail
@@ -168,7 +175,7 @@ class TestCancelJob:
         
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            cancel_job('test-123')
+            cancel_job(request=mock_request(), job_id='test-123')
         
         assert exc_info.value.status_code == 400
         assert 'already cancelled' in exc_info.value.detail
@@ -180,7 +187,7 @@ class TestCancelJob:
         
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            cancel_job('nonexistent-id')
+            cancel_job(request=mock_request(), job_id='nonexistent-id')
         
         assert exc_info.value.status_code == 404
         assert 'not found' in exc_info.value.detail.lower()
@@ -194,7 +201,7 @@ class TestCancelJob:
             'status': 'queued'
         }
         
-        cancel_job('test-123')
+        cancel_job(request=mock_request(), job_id='test-123')
         
         mock_producer.send.assert_called_with('job-status-events', {
             'job_id': 'test-123',
