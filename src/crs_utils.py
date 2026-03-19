@@ -64,8 +64,14 @@ def get_crs_units(crs_string: str) -> str:
     """
     try:
         crs_obj = pyproj.CRS(crs_string)
-        units = crs_obj.axis_info[0].unit.name if crs_obj.axis_info else "unknown"
-        return units
+        if crs_obj.axis_info:
+            unit = crs_obj.axis_info[0].unit
+            if hasattr(unit, 'name'):
+                return unit.name
+            elif hasattr(unit, 'units'):
+                return str(unit.units)
+            return str(unit)
+        return "unknown"
     except Exception as e:
         return "unknown"
 
