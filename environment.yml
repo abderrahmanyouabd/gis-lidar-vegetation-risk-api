@@ -18,3 +18,4 @@ dependencies:
     - kafka-python
     - aiokafka
     - pytest
+    - slowapi

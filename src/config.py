@@ -28,6 +28,12 @@ class PipelineConfig(BaseModel):
     # Risk Thresholds
     CRITICAL_CLEARANCE_M: float = 5.0 # If a tree is within this distance to a powerline, flag it as CRITICAL
 
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_ANALYZE: str = "10/minute"
+    RATE_LIMIT_READ: str = "120/minute"
+    RATE_LIMIT_DELETE: str = "20/minute"
+
 
 
 settings = PipelineConfig()

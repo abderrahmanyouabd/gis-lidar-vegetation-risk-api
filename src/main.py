@@ -1,4 +1,8 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import logging
 import json
 import uuid
@@ -13,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 
 from src.config import settings
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 logging.basicConfig(
@@ -141,10 +147,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4200"], # frontend's default port
+    allow_origins=["http://localhost:4200"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -194,12 +202,13 @@ def health_check():
 
 
 @app.post("/api/v1/analyze-risk")
-def analyze_risk(request: LidarJobRequest):
+@limiter.limit(settings.RATE_LIMIT_ANALYZE)
+def analyze_risk(request: Request, lidar_request: LidarJobRequest):
     """
     Lightning-fast async endpoint. 
     Drops the LiDAR job onto the Kafka queue for background processing.
     """
-    logger.info(f"Received request to queue vegetation risk analysis for: {request.cloud_url}")
+    logger.info(f"Received request to queue vegetation risk analysis for: {lidar_request.cloud_url}")
     
     if not producer:
         raise HTTPException(status_code=503, detail="Kafka broker is not available.")
@@ -209,7 +218,7 @@ def analyze_risk(request: LidarJobRequest):
         
         kafka_message = {
             "job_id": job_id,
-            "cloud_url": request.cloud_url,
+            "cloud_url": lidar_request.cloud_url,
             "status": "queued"
         }
         
@@ -237,7 +246,8 @@ def analyze_risk(request: LidarJobRequest):
 
 
 @app.get("/api/v1/jobs/{job_id}")
-def get_job_result(job_id: str):
+@limiter.limit(settings.RATE_LIMIT_READ)
+def get_job_result(request: Request, job_id: str):
     """
     Fetches the completed 3D map from MongoDB so the frontend can render it.
     """
@@ -263,7 +273,9 @@ def get_job_result(job_id: str):
 
 
 @app.get("/api/v1/jobs", response_model=JobListResponse)
+@limiter.limit(settings.RATE_LIMIT_READ)
 def list_jobs(
+    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page")
 ):
@@ -307,7 +319,8 @@ def list_jobs(
 
 
 @app.delete("/api/v1/jobs/{job_id}")
-def cancel_job(job_id: str):
+@limiter.limit(settings.RATE_LIMIT_DELETE)
+def cancel_job(request: Request, job_id: str):
     """
     Cancel a running or queued job.
     Updates the job status to 'cancelled' and broadcasts the change via Kafka.
