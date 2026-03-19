@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
 import logging
 import json
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Optional
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pydantic import BaseModel
 from kafka import KafkaProducer
 from aiokafka import AIOKafkaConsumer
@@ -166,6 +167,26 @@ class LidarJobRequest(BaseModel):
     cloud_url: str = settings.DEFAULT_COPC_URL
 
 
+class JobListItem(BaseModel):
+    job_id: str
+    cloud_url: Optional[str] = None
+    status: str
+    message: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class PaginationInfo(BaseModel):
+    page: int
+    limit: int
+    total: int
+    total_pages: int
+
+
+class JobListResponse(BaseModel):
+    jobs: List[JobListItem]
+    pagination: PaginationInfo
+
+
 @app.get("/")
 def health_check():
     kafka_status = "Connected" if producer else "Disconnected"
@@ -238,6 +259,50 @@ def get_job_result(job_id: str):
         raise
     except Exception as e:
         logger.error(f"Failed to fetch job {job_id} from database: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error.")
+
+
+@app.get("/api/v1/jobs", response_model=JobListResponse)
+def list_jobs(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page")
+):
+    """
+    List all jobs with their status for the job history panel.
+    Returns paginated list of jobs sorted by creation time (newest first).
+    """
+    try:
+        total = collection.count_documents({})
+        total_pages = (total + limit - 1) // limit if total > 0 else 1
+        skip = (page - 1) * limit
+
+        cursor = collection.find(
+            {},
+            {"result": 0, "error": 0}
+        ).sort("created_at", -1).skip(skip).limit(limit)
+
+        jobs = []
+        for job_data in cursor:
+            jobs.append(JobListItem(
+                job_id=job_data.get("job_id"),
+                cloud_url=job_data.get("cloud_url"),
+                status=job_data.get("status"),
+                message=job_data.get("message"),
+                created_at=job_data.get("created_at")
+            ))
+
+        return JobListResponse(
+            jobs=jobs,
+            pagination=PaginationInfo(
+                page=page,
+                limit=limit,
+                total=total,
+                total_pages=total_pages
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list jobs: {e}")
         raise HTTPException(status_code=500, detail="Database connection error.")
 
 
