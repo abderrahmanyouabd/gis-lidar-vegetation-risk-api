@@ -306,6 +306,63 @@ def list_jobs(
         raise HTTPException(status_code=500, detail="Database connection error.")
 
 
+@app.delete("/api/v1/jobs/{job_id}")
+def cancel_job(job_id: str):
+    """
+    Cancel a running or queued job.
+    Updates the job status to 'cancelled' and broadcasts the change via Kafka.
+    """
+    try:
+        job_data = collection.find_one({"job_id": job_id})
+
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found.")
+
+        current_status = job_data.get("status")
+
+        if current_status in ("completed", "failed"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cancel a job that is already {current_status}."
+            )
+
+        if current_status == "cancelled":
+            raise HTTPException(
+                status_code=400,
+                detail="Job is already cancelled."
+            )
+
+        collection.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "cancelled",
+                "message": "Job cancelled by user"
+            }}
+        )
+
+        status_event = {
+            "job_id": job_id,
+            "status": "cancelled",
+            "message": "Job cancelled by user"
+        }
+        producer.send('job-status-events', status_event)
+        producer.flush()
+
+        logger.info(f"Job {job_id} cancelled successfully.")
+
+        return {
+            "job_id": job_id,
+            "status": "cancelled",
+            "message": "Job cancelled successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error.")
+
+
 @app.websocket("/ws/{job_id}")
 async def websocket_endpoint(websocket: WebSocket, job_id: str):
     """

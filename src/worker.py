@@ -37,6 +37,15 @@ def publish_status(job_id: str, status: str, message: str = ""):
     status_producer.flush()
     logger.info(f"Worker: Published status '{status}' for job {job_id}")
 
+
+def is_job_cancelled(job_id: str, collection) -> bool:
+    """Check if a job has been cancelled."""
+    job_data = collection.find_one({"job_id": job_id}, {"status": 1})
+    if job_data and job_data.get("status") == "cancelled":
+        logger.info(f"Worker: Job {job_id} has been cancelled. Stopping processing.")
+        return True
+    return False
+
 def start_worker():
     logger.info("Starting Background LiDAR Worker...")
 
@@ -72,6 +81,9 @@ def start_worker():
 
         logger.info(f"Picked up Job {job_id} from the queue. Processing URL: {cloud_url}")
 
+        if is_job_cancelled(job_id, collection):
+            continue
+
         try:
             collection.update_one(
                 {"job_id": job_id},
@@ -87,6 +99,8 @@ def start_worker():
 
 
             def progress(stage_msg: str):
+                if is_job_cancelled(job_id, collection):
+                    raise Exception("Job cancelled")
                 collection.update_one({"job_id": job_id}, {"$set": {"message": stage_msg}})
                 publish_status(job_id, "processing", stage_msg)
 
@@ -105,13 +119,18 @@ def start_worker():
             logger.info(f"Successfully updated Job {job_id} in MongoDB!")
 
         except Exception as e:
-            logger.error(f"Failed to process Job {job_id}: {e}")
-            collection.update_one(
-                {"job_id": job_id},
-                {"$set": {"status": "failed", "error": str(e)}},
-                upsert=True
-            )
-            publish_status(job_id, "failed", f"Error: {str(e)}")
+            error_msg = str(e)
+            if "Job cancelled" in error_msg:
+                logger.info(f"Worker: Job {job_id} was cancelled, stopping processing.")
+                publish_status(job_id, "cancelled", "Job cancelled")
+            else:
+                logger.error(f"Failed to process Job {job_id}: {e}")
+                collection.update_one(
+                    {"job_id": job_id},
+                    {"$set": {"status": "failed", "error": error_msg}},
+                    upsert=True
+                )
+                publish_status(job_id, "failed", f"Error: {error_msg}")
 
 if __name__ == "__main__":
     start_worker()
